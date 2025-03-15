@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>📚 Admin Panel - Library System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 30px; background-color: #f5f5f5; }
+    h1 { text-align: center; color: #333; }
+    .container { max-width: 1000px; margin: auto; background: #fff; padding: 25px; border-radius: 15px; box-shadow: 0 0 15px rgba(0,0,0,0.1); position: relative; }
+    form input, form select { padding: 10px; margin: 8px 5px; width: calc(24% - 10px); border-radius: 5px; border: 1px solid #ccc; }
+    form button { padding: 10px 20px; margin-top: 10px; background-color: #007bff; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+    th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background-color: #007bff; color: white; }
+    .delete-btn { background-color: crimson; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 5px; }
+    .logout-btn { position: absolute; top: 20px; right: 30px; background-color: crimson; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <button class="logout-btn" onclick="logout()">Logout</button>
+    <h1>📚 Admin Panel - Manage Books</h1>
+
+    <div id="dashboard" style="display: flex; gap: 20px; margin-bottom: 25px;">
+      <div style="background:#007bff; color:#fff; padding:20px; border-radius:10px; flex:1; text-align:center">
+        <h3>Total Books</h3>
+        <p id="totalBooks" style="font-size:24px">0</p>
+      </div>
+      <div style="background:#28a745; color:#fff; padding:20px; border-radius:10px; flex:1; text-align:center">
+        <h3>Total Categories</h3>
+        <p id="totalCategories" style="font-size:24px">0</p>
+      </div>
+      <div style="background:#ffc107; color:#000; padding:20px; border-radius:10px; flex:1; text-align:center">
+        <h3>Total Shelves</h3>
+        <p id="totalShelves" style="font-size:24px">0</p>
+      </div>
+    </div>
+
+    <form id="adminBookForm">
+      <input type="text" id="title" placeholder="Title" required />
+      <input type="text" id="author" placeholder="Author" required />
+      <input type="text" id="publisher" placeholder="Publisher" required />
+      <input type="text" id="isbn" placeholder="ISBN" required />
+      <input type="text" id="genre" placeholder="Genre" required />
+      <select id="category_id" required>
+        <option value="">-- Select Category --</option>
+      </select>
+      <select id="shelf_id" required>
+        <option value="">-- Select Shelf --</option>
+      </select>
+      <input type="number" id="published_year" placeholder="Published Year" required />
+      <input type="number" id="copies_available" placeholder="Copies Available" required />
+      <button type="submit">➕ Add Book</button>
+    </form>
+
+    <div style="margin-top: 25px; display: flex; justify-content: flex-end;">
+      <input type="text" id="searchInput" placeholder="🔍 Search by Title, Author or Genre" style="padding: 10px; width: 300px; border-radius: 5px; border: 1px solid #ccc;" onkeyup="filterBooks()"/>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Genre</th>
+          <th>Year</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="adminBookList"></tbody>
+    </table>
+  </div>
+
+  <script>
+    if (!localStorage.getItem('isAdminLoggedIn')) {
+      alert('Please login first!');
+      window.location.href = 'admin-login.html';
+    }
+
+    function logout() {
+      localStorage.removeItem('isAdminLoggedIn');
+      window.location.href = 'admin-login.html';
+    }
+
+    let allBooks = [];
+    let editingBookId;
+
+    async function loadShelves() {
+      try {
+        const res = await fetch('http://localhost:5000/shelves');
+        const shelves = await res.json();
+        const shelfDropdown = document.getElementById('shelf_id');
+        shelfDropdown.innerHTML = '<option value="">-- Select Shelf --</option>';
+        shelves.forEach(shelf => {
+          const option = document.createElement('option');
+          option.value = shelf.shelf_id;
+          option.textContent = shelf.shelf_name;
+          shelfDropdown.appendChild(option);
+        });
+      } catch (err) {
+        alert('Error loading shelves.');
+        console.log(err);
+      }
+    }
+
+    async function loadCategories() {
+      try {
+        const res = await fetch('http://localhost:5000/categories');
+        const categories = await res.json();
+        const categoryDropdown = document.getElementById('category_id');
+        categoryDropdown.innerHTML = '<option value="">-- Select Category --</option>';
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat.category_id;
+          option.textContent = cat.category_name;
+          categoryDropdown.appendChild(option);
+        });
+      } catch (err) {
+        alert('Error loading categories');
+        console.log(err);
+      }
+    }
+
+    async function fetchBooks() {
+      try {
+        const res = await fetch('http://localhost:5000/books');
+        const books = await res.json();
+        allBooks = books;
+        displayBooks(books);
+        updateDashboardCounts();
+      } catch (err) {
+        alert('Error fetching books.');
+        console.log(err);
+      }
+    }
+
+    function displayBooks(books) {
+      const bookList = document.getElementById('adminBookList');
+      bookList.innerHTML = '';
+      books.forEach(book => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${book.title}</td>
+          <td>${book.author}</td>
+          <td>${book.genre}</td>
+          <td>${book.published_year}</td>
+          <td>
+            <button class="delete-btn" onclick="deleteBook(${book.book_id})">Delete</button>
+            <button class="delete-btn" style="background: #28a745;" onclick='editBook(${JSON.stringify(book)})'>Edit</button>
+          </td>
+        `;
+        bookList.appendChild(row);
+      });
+    }
+
+    function filterBooks() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      const filtered = allBooks.filter(book =>
+        book.title.toLowerCase().includes(query) ||
+        book.author.toLowerCase().includes(query) ||
+        book.genre.toLowerCase().includes(query)
+      );
+      displayBooks(filtered);
+    }
+
+    async function updateDashboardCounts() {
+      try {
+        const books = await fetch('http://localhost:5000/books').then(res => res.json());
+        const categories = await fetch('http://localhost:5000/categories').then(res => res.json());
+        const shelves = await fetch('http://localhost:5000/shelves').then(res => res.json());
+        document.getElementById('totalBooks').textContent = books.length;
+        document.getElementById('totalCategories').textContent = categories.length;
+        document.getElementById('totalShelves').textContent = shelves.length;
+      } catch (err) {
+        console.log('Dashboard error:', err);
+      }
+    }
+
+    function editBook(book) {
+      document.getElementById('title').value = book.title;
+      document.getElementById('author').value = book.author;
+      document.getElementById('publisher').value = book.publisher;
+      document.getElementById('isbn').value = book.isbn;
+      document.getElementById('genre').value = book.genre;
+      document.getElementById('category_id').value = book.category_id;
+      document.getElementById('shelf_id').value = book.shelf_id;
+      document.getElementById('published_year').value = book.published_year;
+      document.getElementById('copies_available').value = book.copies_available;
+      editingBookId = book.book_id;
+      document.querySelector('form button').textContent = '💾 Update Book';
+    }
+
+    async function deleteBook(bookId) {
+      if (confirm('Are you sure you want to delete this book?')) {
+        try {
+          const res = await fetch(`http://localhost:5000/books/${bookId}`, { method: 'DELETE' });
+          if (res.ok) {
+            alert('Book deleted successfully');
+            fetchBooks();
+          } else {
+            alert('Failed to delete book');
+          }
+        } catch (err) {
+          console.log(err);
+          alert('Server error while deleting book');
+        }
+      }
+    }
+
+    document.getElementById('adminBookForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bookData = {
+        title: document.getElementById('title').value,
+        author: document.getElementById('author').value,
+        publisher: document.getElementById('publisher').value,
+        isbn: document.getElementById('isbn').value,
+        genre: document.getElementById('genre').value,
+        category_id: document.getElementById('category_id').value,
+        shelf_id: document.getElementById('shelf_id').value,
+        published_year: document.getElementById('published_year').value,
+        copies_available: document.getElementById('copies_available').value,
+      };
+
+      try {
+        const res = await fetch(`http://localhost:5000/books${editingBookId ? '/' + editingBookId : ''}`, {
+          method: editingBookId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bookData),
+        });
+        if (res.ok) {
+          alert(editingBookId ? 'Book updated successfully' : 'Book added successfully');
+          fetchBooks();
+          document.getElementById('adminBookForm').reset();
+          editingBookId = null;
+          document.querySelector('form button').textContent = '➕ Add Book';
+        } else {
+          alert('Failed to save book.');
+        }
+      } catch (err) {
+        console.log(err);
+        alert('Server error while saving book.');
+      }
+    });
+
+    loadShelves();
+    loadCategories();
+    fetchBooks();
+  </script>
+</body>
+</html>
